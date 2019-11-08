@@ -8,27 +8,28 @@ import datetime
 import psycopg2
 from sqlalchemy import create_engine, text
 
-#From file
-#df = pd.read_csv("aggr.csv", parse_dates=["Entry time"])
+# From file
+# df = pd.read_csv("aggr.csv", parse_dates=["Entry time"])
 
-#From database
-POSTGRES_ADDRESS = 'projectmedellin.ccwkaz2hd3k8.us-east-2.rds.amazonaws.com' ## INSERT YOUR DB ADDRESS
-POSTGRES_PORT = '5432'
-POSTGRES_USERNAME = 'postgres' ## CHANGE THIS TO YOUR POSTGRES USERNAME
-POSTGRES_PASSWORD = 'oTuyoRw6p4lYKikB7NNp' ## CHANGE THIS TO YOUR POSTGRES PASSWORD 
-POSTGRES_DBNAME = 'strategy' ## CHANGE THIS TO YOUR DATABASE NAME
-postgres_str = ('postgresql://{username}:{password}@{ipaddress}:{port}/{dbname}'
-                .format(username=POSTGRES_USERNAME,
-                 password=POSTGRES_PASSWORD,
-                 ipaddress=POSTGRES_ADDRESS,
-                 port=POSTGRES_PORT,
-                 dbname=POSTGRES_DBNAME))
+# From database
+POSTGRES_ADDRESS = "projectmedellin.ccwkaz2hd3k8.us-east-2.rds.amazonaws.com"  ## INSERT YOUR DB ADDRESS
+POSTGRES_PORT = "5432"
+POSTGRES_USERNAME = "postgres"  ## CHANGE THIS TO YOUR POSTGRES USERNAME
+POSTGRES_PASSWORD = "oTuyoRw6p4lYKikB7NNp"  ## CHANGE THIS TO YOUR POSTGRES PASSWORD
+POSTGRES_DBNAME = "strategy"  ## CHANGE THIS TO YOUR DATABASE NAME
+postgres_str = "postgresql://{username}:{password}@{ipaddress}:{port}/{dbname}".format(
+    username=POSTGRES_USERNAME,
+    password=POSTGRES_PASSWORD,
+    ipaddress=POSTGRES_ADDRESS,
+    port=POSTGRES_PORT,
+    dbname=POSTGRES_DBNAME,
+)
 # Create the connection
 cnx = create_engine(postgres_str)
-df = pd.read_sql("SELECT * from trades", cnx.connect(), parse_dates=('Entry time',))
+df = pd.read_sql("SELECT * from trades", cnx.connect(), parse_dates=("Entry time",))
 
 
-df["YearMonth"] = df["Entry time"].apply(lambda x: x.strftime("%Y %m"))
+df["YearMonth"] = df["Entry time"].apply(lambda x: "{0}-{1}".format(x.year, x.month))
 
 
 def filter_exchange(exchange):
@@ -150,7 +151,7 @@ app.layout = html.Div(
                                         html.P(
                                             id="strat-returns",
                                             className="indicator_value",
-                                            children="Change me",
+                                            children="Loading",
                                         ),
                                         html.P(
                                             "Strategy Returns",
@@ -166,7 +167,7 @@ app.layout = html.Div(
                                         html.P(
                                             id="market-returns",
                                             className="indicator_value",
-                                            children="Change me",
+                                            children="Loading",
                                         ),
                                         html.P(
                                             "Market Returns",
@@ -182,7 +183,7 @@ app.layout = html.Div(
                                         html.P(
                                             id="strat-vs-market",
                                             className="indicator_value",
-                                            children=["Change Me"],
+                                            children="Loading",
                                         ),
                                         html.P(
                                             "Strategy vs. Market Returns",
@@ -203,16 +204,7 @@ app.layout = html.Div(
                 dcc.Graph(
                     id="monthly-chart",
                     figure=go.Figure(
-                        data=[
-                            go.Candlestick(
-                                x=df["YearMonth"],
-                                open=df["Entry balance"],
-                                close=df["Exit balance"],
-                                low=df["Entry balance"],
-                                high=df["Exit balance"],
-                            )
-                        ],
-                        layout={"title": "Overview of Monthly performance"},
+                        data=[], layout={"title": "Overview of Monthly performance"},
                     ),
                 )
             ],
@@ -296,6 +288,8 @@ def calc_returns_over_month(dff):
         dash.dependencies.Output("strat-returns", "children"),
         dash.dependencies.Output("strat-vs-market", "children"),
         dash.dependencies.Output("pnl-types", "figure"),
+        dash.dependencies.Output("daily-btc", "figure"),
+        dash.dependencies.Output("balance", "figure"),
     ],
     (
         dash.dependencies.Input("exchange-select", "value"),
@@ -310,8 +304,14 @@ def update_monthly(exchange, leverage, start_date, end_date):
     btc_returns = calc_btc_returns(dff)
     strat_returns = calc_strat_returns(dff)
     strat_vs_market = strat_returns - btc_returns
-    trace1 = go.Bar(x=dff["Entry time"], y=dff["Profit"], name="Profit")
-    trace2 = go.Bar(x=dff["Entry time"], y=dff["Trade type"], name="Trade type")
+    # for pnl graph
+    shortval = dff[dff["Trade type"] == "Short"]["Pnl (incl fees)"]
+    longval = dff[dff["Trade type"] == "Long"]["Pnl (incl fees)"]
+    shortbar = go.Bar(x=dff["Entry time"], y=shortval, name="Short")
+    longbar = go.Bar(x=dff["Entry time"], y=longval, name="Long")
+    # line charts
+    trace_btc = go.Scatter(x=dff["Entry time"], y=dff["BTC Price"], mode="lines")
+    trace_portfolio = go.Scatter(x=dff["Entry time"], y=dff["Profit"], mode="lines")
     return (
         {
             "data": [
@@ -328,7 +328,9 @@ def update_monthly(exchange, leverage, start_date, end_date):
         f"{btc_returns:0.2f}%",
         f"{strat_returns:0.2f}%",
         f"{strat_vs_market:0.2f}%",
-        {"data": [trace1, trace2], "layout": go.Layout(title="PnL vs Trade type")},
+        {"data": [shortbar, longbar], "layout": go.Layout(title="PnL vs Trade type")},
+        {"data": [trace_btc], "layout": go.Layout(title="Daily BTC Price")},
+        {"data": [trace_portfolio], "layout": go.Layout(title="Balance overtime")},
     )
 
 
@@ -348,28 +350,26 @@ def update_table(exchange, leverage, start_date, end_date):
 
 
 # BTC line chart / portfolio balalnce
-@app.callback(
-    [
-        dash.dependencies.Output("daily-btc", "figure"),
-        dash.dependencies.Output("balance", "figure"),
-    ],
-    (
-        dash.dependencies.Input("date-range-select", "start_date"),
-        dash.dependencies.Input("date-range-select", "end_date"),
-    ),
-)
-def update_daily_btc_portfolio_balance(start_date, end_date):
-    dfd = filter_date(start_date, end_date)
-    trace_btc = go.Scatter(x=dfd["Entry time"], y=dfd["BTC Price"])
-    trace_portfolio = go.Scatter(x=dfd["Entry time"], y=dfd["Profit"])
-    return (
-        {"data": [trace_btc], "layout": go.Layout(title="Daily BTC Price")},
-        {
-            "data": [trace_portfolio],
-            "layout": go.Layout(title="Balance overtime"),
-        },
-    )
+# @app.callback(
+#     [
+#         dash.dependencies.Output("daily-btc", "figure"),
+#         dash.dependencies.Output("balance", "figure"),
+#     ],
+#     (
+#         dash.dependencies.Input("date-range-select", "start_date"),
+#         dash.dependencies.Input("date-range-select", "end_date"),
+#     ),
+# )
+# def update_daily_btc_portfolio_balance(start_date, end_date):
+#     dfd = filter_date(start_date, end_date)
+#     trace_btc = go.Scatter(x=dfd["Entry time"], y=dfd["BTC Price"],mode='lines')
+#     trace_portfolio = go.Scatter(x=dfd["Entry time"], y=dfd["Profit"],mode='lines')
+#     return (
+#         {"data": [trace_btc], "layout": go.Layout(title="Daily BTC Price")},
+#         {"data": [trace_portfolio],"layout": go.Layout(title="Balance overtime")},
+#     )
 
 
 if __name__ == "__main__":
-    app.run_server(debug=True,host='0.0.0.0')
+    app.run_server(debug=True, host="0.0.0.0")
+
