@@ -311,7 +311,7 @@ def update_monthly(exchange, leverage, start_date, end_date):
     longbar = go.Bar(x=dff["Entry time"], y=longval, name="Long")
     # line charts
     trace_btc = go.Scatter(x=dff["Entry time"], y=dff["BTC Price"], mode="lines")
-    trace_portfolio = go.Scatter(x=dff["Entry time"], y=dff["Profit"], mode="lines")
+    trace_portfolio = go.Scatter(x=dff["Entry time"], y=dff['Exit balance']+dff['Pnl (incl fees)'] , mode="lines")
     return (
         {
             "data": [
@@ -347,28 +347,6 @@ def update_monthly(exchange, leverage, start_date, end_date):
 def update_table(exchange, leverage, start_date, end_date):
     dff = filter_df(exchange, leverage, start_date, end_date)
     return dff.to_dict("records")
-
-
-# BTC line chart / portfolio balalnce
-# @app.callback(
-#     [
-#         dash.dependencies.Output("daily-btc", "figure"),
-#         dash.dependencies.Output("balance", "figure"),
-#     ],
-#     (
-#         dash.dependencies.Input("date-range-select", "start_date"),
-#         dash.dependencies.Input("date-range-select", "end_date"),
-#     ),
-# )
-# def update_daily_btc_portfolio_balance(start_date, end_date):
-#     dfd = filter_date(start_date, end_date)
-#     trace_btc = go.Scatter(x=dfd["Entry time"], y=dfd["BTC Price"],mode='lines')
-#     trace_portfolio = go.Scatter(x=dfd["Entry time"], y=dfd["Profit"],mode='lines')
-#     return (
-#         {"data": [trace_btc], "layout": go.Layout(title="Daily BTC Price")},
-#         {"data": [trace_portfolio],"layout": go.Layout(title="Balance overtime")},
-#     )
-
 
 if __name__ == "__main__":
     app.run_server(debug=True, host="0.0.0.0")
